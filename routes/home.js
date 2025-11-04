@@ -249,6 +249,21 @@ module.exports = function (router) {
 
                 // Find tasks that were added to the user
                 const addedTasks = newTasks.filter(t => !oldTasks.includes(t));
+                if (addedTasks.length > 0) {
+                    const completedTasks = await Task.find({
+                        _id: { $in: addedTasks },
+                        completed: true
+                    }).select('name'); // Get the name for a good error message
+
+                    if (completedTasks.length > 0) {
+                        const taskNames = completedTasks.map(t => `"${t.name}"`).join(', ');
+                        return res.status(400).json({
+                            message: `Validation Error: Cannot add completed tasks to pendingTasks. The following tasks are already completed: ${taskNames}`,
+                            data: null
+                        });
+                    }
+                }
+
                 // Find tasks that were removed from the user
                 const removedTasks = oldTasks.filter(t => !newTasks.includes(t));
 
@@ -451,7 +466,26 @@ module.exports = function (router) {
                 // The script sends "true" or "false" as strings.
                 const completedStatus = (req.body.completed === 'true');
 
-                // --- END FIX ---
+                let validUserName = "unassigned";
+                if (req.body.assignedUser) {
+                    const user = await User.findById(req.body.assignedUser);
+
+                    if (!user) {
+                        return res.status(404).json({
+                            message: "Error: Cannot assign task to a user that does not exist.",
+                            data: null
+                        });
+                    }
+
+                    // Check if the provided name matches the user's actual name
+                    if (req.body.assignedUserName !== user.name) {
+                        return res.status(400).json({
+                            message: `Validation Error: 'assignedUserName' ("${req.body.assignedUserName}") does not match the name of the user ("${user.name}").`,
+                            data: null
+                        });
+                    }
+                    validUserName = user.name;
+                }
 
                 // Create new task instance
                 const newTask = new Task({
@@ -460,7 +494,7 @@ module.exports = function (router) {
                     deadline: deadlineDate, // Use the parsed date
                     completed: completedStatus, // Use the parsed boolean
                     assignedUser: req.body.assignedUser || null,
-                    assignedUserName: req.body.assignedUserName || "unassigned"
+                    assignedUserName: validUserName
                     // dateCreated is set by default
                 });
 
@@ -582,7 +616,35 @@ module.exports = function (router) {
                 if (typeof req.body.completed === 'string') {
                     completedStatus = (req.body.completed === 'true');
                 }
-                // --- END FIX ---
+
+                let validUserName = "unassigned";
+                if (req.body.assignedUser) {
+                    const user = await User.findById(req.body.assignedUser);
+
+                    if (!user) {
+                        return res.status(404).json({
+                            message: "Error: Cannot assign task to a user that does not exist.",
+                            data: null
+                        });
+                    }
+
+                    // Check if the provided name matches the user's actual name
+                    if (req.body.assignedUserName !== user.name) {
+                        return res.status(400).json({
+                            message: `Validation Error: 'assignedUserName' ("${req.body.assignedUserName}") does not match the name of the user ("${user.name}").`,
+                            data: null
+                        });
+                    }
+                    validUserName = user.name;
+                } else {
+                    // If the user is being unassigned, ensure the name is also "unassigned"
+                    if (req.body.assignedUserName && req.body.assignedUserName !== "unassigned") {
+                        return res.status(400).json({
+                            message: `Validation Error: 'assignedUserName' must be "unassigned" when 'assignedUser' is not provided.`,
+                            data: null
+                        });
+                    }
+                }
 
                 const replacementData = {
                     ...req.body,
@@ -597,6 +659,13 @@ module.exports = function (router) {
                     return res.status(404).json({ message: "Task not found", data: null });
                 }
 
+                // --- Block updates on completed tasks ---
+                if (oldTask.completed) {
+                    return res.status(400).json({
+                        message: "Error: Cannot update a task that is already completed.",
+                        data: null
+                    });
+                }
                 const oldUserId = oldTask.assignedUser || "";
                 const newUserId = replacementData.assignedUser || "";
 
