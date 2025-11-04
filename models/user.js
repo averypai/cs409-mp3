@@ -15,7 +15,7 @@ var UserSchema = new mongoose.Schema({
         lowercase: true
     },
     pendingTasks: [{
-        type: mongoose.Schema.Types.ObjectId,
+        type: String,
         ref: 'Task'
     }],
     dateCreated: {

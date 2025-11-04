@@ -15,7 +15,7 @@ const TaskSchema = new Schema({
         default: false // default
     },
     assignedUser: {
-        type: mongoose.Schema.Types.ObjectId,
+        type: String,
         ref: 'User',
         default: "" // default
     },
