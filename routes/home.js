@@ -452,14 +452,15 @@ module.exports = function (router) {
                 // 1. Parse the 'deadline' string.
                 // The script sends a float-string (e.g., "1730421319000.0").
                 // parseFloat() converts it to a number, which new Date() CAN handle.
-                const deadlineDate = new Date(parseFloat(req.body.deadline));
+                let deadlineInput = req.body.deadline;
+                let deadlineDate;
 
-                // Check if the conversion resulted in a valid date
-                if (isNaN(deadlineDate.getTime())) {
-                    return res.status(400).json({
-                        message: "Validation Error: 'deadline' could not be parsed as a valid date.",
-                        data: null
-                    });
+                // Check if it's a number or a float-string
+                if (!isNaN(parseFloat(deadlineInput)) && isFinite(deadlineInput)) {
+                    deadlineDate = new Date(parseFloat(deadlineInput));
+                } else {
+                    // Otherwise, parse it as a standard date string
+                    deadlineDate = new Date(deadlineInput);
                 }
 
                 // 2. Parse the 'completed' string.
@@ -493,7 +494,7 @@ module.exports = function (router) {
                     description: req.body.description || "",
                     deadline: deadlineDate, // Use the parsed date
                     completed: completedStatus, // Use the parsed boolean
-                    assignedUser: req.body.assignedUser || null,
+                    assignedUser: req.body.assignedUser || "",
                     assignedUserName: validUserName
                     // dateCreated is set by default
                 });

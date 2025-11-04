@@ -16,7 +16,6 @@ const TaskSchema = new Schema({
     },
     assignedUser: {
         type: String,
-        ref: 'User',
         default: "" // default
     },
     assignedUserName: {
