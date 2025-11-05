@@ -230,11 +230,15 @@ module.exports = function (router) {
                     });
                 }
 
+                const uniquePendingTasks = Array.isArray(req.body.pendingTasks)
+                    ? [...new Set(req.body.pendingTasks)] // Use a Set to get only unique values
+                    : [];
+
                 // Data for replacement
                 const replacementData = {
                     name: req.body.name,
                     email: req.body.email,
-                    pendingTasks: Array.isArray(req.body.pendingTasks) ? req.body.pendingTasks : []
+                    pendingTasks: uniquePendingTasks
                 };
 
                 // --- Data Integrity: "PUT a User with pendingTasks" ---
@@ -269,10 +273,26 @@ module.exports = function (router) {
 
                 // Update tasks that were added: assign them to this user
                 if (addedTasks.length > 0) {
-                    await Task.updateMany(
-                        { _id: { $in: addedTasks } },
-                        { $set: { assignedUser: oldUser._id.toString(), assignedUserName: replacementData.name } }
-                    );
+                    for (const taskId of addedTasks) {
+                        const task = await Task.findById(taskId);
+                        if (!task) continue; // Skip if task was deleted
+
+                        const previousOwnerId = task.assignedUser;
+                        const newOwnerId = oldUser._id.toString(); // 'oldUser' is the user from the PUT request
+
+                        // Check if task had a previous owner AND that owner is not the new owner
+                        if (previousOwnerId && previousOwnerId !== newOwnerId) {
+                            // Remove task from the PREVIOUS owner's pendingTasks list
+                            await User.findByIdAndUpdate(previousOwnerId, {
+                                $pull: { pendingTasks: taskId }
+                            });
+                        }
+
+                        // Now, assign the task to the new owner
+                        task.assignedUser = newOwnerId;
+                        task.assignedUserName = replacementData.name;
+                        await task.save();
+                    }
                 }
 
                 // Update tasks that were removed: unassign them
@@ -488,6 +508,20 @@ module.exports = function (router) {
                     validUserName = user.name;
                 }
 
+                if (req.body.assignedUser) {
+                    const existingTask = await Task.findOne({
+                        name: req.body.name,
+                        assignedUser: req.body.assignedUser
+                    });
+
+                    if (existingTask) {
+                        return res.status(400).json({
+                            message: `Validation Error: A task with this name ("${req.body.name}") is already assigned to this user.`,
+                            data: null
+                        });
+                    }
+                }
+
                 // Create new task instance
                 const newTask = new Task({
                     name: req.body.name,
@@ -650,8 +684,24 @@ module.exports = function (router) {
                 const replacementData = {
                     ...req.body,
                     deadline: deadlineDate,
-                    completed: completedStatus
+                    completed: completedStatus,
+                    // assignedUserName: validUserName
                 };
+
+                if (replacementData.assignedUser) {
+                    const existingTask = await Task.findOne({
+                        name: replacementData.name,
+                        assignedUser: replacementData.assignedUser,
+                        _id: { $ne: req.params.id } // Look for a *different* task with same name/user
+                    });
+
+                    if (existingTask) {
+                        return res.status(400).json({
+                            message: `Validation Error: A task with this name ("${replacementData.name}") is already assigned to this user.`,
+                            data: null
+                        });
+                    }
+                }
 
                 // --- Data Integrity: "PUT a Task" ---
                 // Get the task's old state to see if assignedUser or completed status changed
